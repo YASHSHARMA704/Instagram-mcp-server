@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import argparse
 import json
+import threading
 
 load_dotenv()
 
@@ -62,6 +63,14 @@ login_instagram(USERNAME, PASSWORD, client)
 # === MCP SETUP ===
 mcp = FastMCP(name="Instagram DM MCP", instructions=INSTRUCTIONS)
 
+def send_photo_async(user_id: int, photo_path: str):
+    """Send photo in background, log errors if any."""
+    try:
+        client.direct_send_photo(Path(photo_path), [user_id])
+        logger.info(f"Photo sent to user_id={user_id}")
+    except Exception as e:
+        logger.error(f"Failed to send photo to user_id={user_id}: {e}")
+
 @mcp.tool
 def send_message(recipient_username: str, message: str) -> str:
     """Send an Instagram direct message to a user by username.
@@ -90,6 +99,37 @@ def send_message(recipient_username: str, message: str) -> str:
     except Exception as e:
         logger.error(f"Failed to send message to {recipient_username}: {e}")
         return tool_response({"success": False, "error": str(e)})
+    
+
+@mcp.tool
+def send_photo_message(recipient_username: str, photo_path: str) -> str:
+    """Send a photo via Instagram direct message to a user by username.
+
+    Args:
+        recipient_username: Instagram username of the recipient.
+        photo_path: Path to the photo file to send.
+    Returns:
+        A dictionary with success status and a status message.
+
+    """
+
+    if not recipient_username or not photo_path:
+        return tool_response({"success": False, "error": "Recipient username and photo path cannot be empty."})
+    
+    if not os.path.exists(photo_path):
+        return tool_response({"success": False, "error": f"Photo file '{photo_path}' does not exist."})
+
+    user_id = client.user_id_from_username(recipient_username)
+    if not user_id:
+        return tool_response({"success": False, "error": f"User '{recipient_username}' not found."})
+    
+    try:
+        threading.Thread(target=send_photo_async, args=(user_id, photo_path), daemon=True).start()
+        return tool_response({"success": True, "message": "Photo send request initiated."})
+    except Exception as e:
+        logger.error(f"Failed to start thread for sending photo to {recipient_username}: {e}")
+        return tool_response({"success": False, "error": str(e)})
+
 
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
