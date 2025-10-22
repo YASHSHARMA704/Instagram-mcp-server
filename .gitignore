@@ -8,3 +8,5 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+.yash_satyawali_session.json
