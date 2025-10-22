@@ -7,6 +7,7 @@ import os
 import argparse
 import json
 import threading
+from typing import Dict, Any
 
 load_dotenv()
 
@@ -52,10 +53,6 @@ def login_instagram(username: str, password: str, client: Client):
         logger.error(f"Failed to login to Instagram: {e}")
         raise e
 
-def tool_response(response: dict) -> str:
-    """Convert dict response to JSON string for MCP."""
-    return json.dumps(response)
-
 # === LOGIN BEFORE REGISTERING TOOLS ===
 USERNAME, PASSWORD = get_credentials()
 login_instagram(USERNAME, PASSWORD, client)
@@ -63,16 +60,8 @@ login_instagram(USERNAME, PASSWORD, client)
 # === MCP SETUP ===
 mcp = FastMCP(name="Instagram DM MCP", instructions=INSTRUCTIONS)
 
-def send_photo_async(user_id: int, photo_path: str):
-    """Send photo in background, log errors if any."""
-    try:
-        client.direct_send_photo(Path(photo_path), [user_id])
-        logger.info(f"Photo sent to user_id={user_id}")
-    except Exception as e:
-        logger.error(f"Failed to send photo to user_id={user_id}: {e}")
-
 @mcp.tool
-def send_message(recipient_username: str, message: str) -> str:
+def send_message(recipient_username: str, message: str) -> Dict[str, Any]:
     """Send an Instagram direct message to a user by username.
 
     Args:
@@ -84,25 +73,25 @@ def send_message(recipient_username: str, message: str) -> str:
     """
 
     if not recipient_username or not message:
-        return tool_response({"success": False, "error": "Recipient username and message cannot be empty."})
+        return {"success": False, "error": "Recipient username and message cannot be empty."}
 
     try:
         user_id = client.user_id_from_username(recipient_username)
         if not user_id:
-            return tool_response({"success": False, "error": f"User '{recipient_username}' not found."})
+            return {"success": False, "error": f"User '{recipient_username}' not found."}
         
         direct_message = client.direct_send(message, [user_id])
         if direct_message:
-            return tool_response({"success": True, "message": "Message sent to user.", "direct_message_id": getattr(direct_message, 'id', None)})
+            return {"success": True, "message": "Message sent to user.", "direct_message_id": getattr(direct_message, 'id', None)}
         else:
-            return tool_response({"success": False, "message": "Failed to send message."})
+            return {"success": False, "message": "Failed to send message."}
     except Exception as e:
         logger.error(f"Failed to send message to {recipient_username}: {e}")
-        return tool_response({"success": False, "error": str(e)})
+        return {"success": False, "error": str(e)}
     
 
 @mcp.tool
-def send_photo_message(recipient_username: str, photo_path: str) -> str:
+def send_photo_message(recipient_username: str, photo_path: str) -> Dict[str, Any]:
     """Send a photo via Instagram direct message to a user by username.
 
     Args:
@@ -114,22 +103,23 @@ def send_photo_message(recipient_username: str, photo_path: str) -> str:
     """
 
     if not recipient_username or not photo_path:
-        return tool_response({"success": False, "error": "Recipient username and photo path cannot be empty."})
+        return {"success": False, "error": "Recipient username and photo path cannot be empty."}
     
     if not os.path.exists(photo_path):
-        return tool_response({"success": False, "error": f"Photo file '{photo_path}' does not exist."})
+        return {"success": False, "error": f"Photo file '{photo_path}' does not exist."}
 
-    user_id = client.user_id_from_username(recipient_username)
-    if not user_id:
-        return tool_response({"success": False, "error": f"User '{recipient_username}' not found."})
-    
     try:
-        threading.Thread(target=send_photo_async, args=(user_id, photo_path), daemon=True).start()
-        return tool_response({"success": True, "message": "Photo send request initiated."})
+        user_id = client.user_id_from_username(recipient_username)
+        if not user_id:
+            return {"success": False, "message": f"User '{recipient_username}' not found."}
+        
+        result = client.direct_send_photo(Path(photo_path), [user_id])
+        if result:
+            return {"success": True, "message": "Photo sent successfully.", "direct_message_id": getattr(result, 'id', None)}
+        else:
+            return {"success": False, "message": "Failed to send photo."}
     except Exception as e:
-        logger.error(f"Failed to start thread for sending photo to {recipient_username}: {e}")
-        return tool_response({"success": False, "error": str(e)})
-
+        return {"success": False, "message": str(e)}
 
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
